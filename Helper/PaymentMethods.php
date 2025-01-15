@@ -54,6 +54,7 @@ class PaymentMethods extends AbstractHelper
     const ADYEN_ONE_CLICK = 'adyen_oneclick';
     const ADYEN_PAY_BY_LINK = 'adyen_pay_by_link';
     const ADYEN_PREFIX = 'adyen_';
+    const ADYEN_CC_VAULT = 'adyen_cc_vault';
     const METHODS_WITH_BRAND_LOGO = [
         "giftcard"
     ];
@@ -65,6 +66,8 @@ class PaymentMethods extends AbstractHelper
     const FUNDING_SOURCE_CREDIT = 'credit';
 
     const ADYEN_GROUP_ALTERNATIVE_PAYMENT_METHODS = 'adyen-alternative-payment-method';
+
+    const VALID_CHANNELS = ["iOS", "Android", "Web"];
 
     /*
      * Following payment methods should be enabled with their own configuration path.
@@ -229,12 +232,18 @@ class PaymentMethods extends AbstractHelper
      * @param int $quoteId
      * @param string|null $country
      * @param string|null $shopperLocale
+     * @param string|null $channel
      * @return string
      * @throws AdyenException
      * @throws LocalizedException
      * @throws NoSuchEntityException
      */
-    public function getPaymentMethods(int $quoteId, ?string $country = null, ?string $shopperLocale = null): string
+    public function getPaymentMethods(
+        int $quoteId,
+        ?string $country = null,
+        ?string $shopperLocale = null,
+        ?string $channel = null
+    ): string
     {
         // get quote from quoteId
         $quote = $this->quoteRepository->getActive($quoteId);
@@ -245,7 +254,7 @@ class PaymentMethods extends AbstractHelper
 
         $this->setQuote($quote);
 
-        return $this->fetchPaymentMethods($country, $shopperLocale);
+        return $this->fetchPaymentMethods($country, $shopperLocale, $channel);
     }
 
     /**
@@ -327,12 +336,17 @@ class PaymentMethods extends AbstractHelper
     /**
      * @param string|null $country
      * @param string|null $shopperLocale
+     * @param string|null $channel
      * @return string
      * @throws AdyenException
      * @throws LocalizedException
      * @throws NoSuchEntityException
      */
-    protected function fetchPaymentMethods(?string $country = null, ?string $shopperLocale = null): string
+    protected function fetchPaymentMethods(
+        ?string $country = null,
+        ?string $shopperLocale = null,
+        ?string $channel = null
+    ): string
     {
         $quote = $this->getQuote();
         $store = $quote->getStore();
@@ -342,7 +356,14 @@ class PaymentMethods extends AbstractHelper
             return json_encode([]);
         }
 
-        $requestData = $this->getPaymentMethodsRequest($merchantAccount, $store, $quote, $shopperLocale, $country);
+        $requestData = $this->getPaymentMethodsRequest(
+            $merchantAccount,
+            $store,
+            $quote,
+            $shopperLocale,
+            $country,
+            $channel
+        );
         $responseData = $this->getPaymentMethodsResponse($requestData, $store);
         if (empty($responseData['paymentMethods'])) {
             return json_encode([]);
@@ -526,6 +547,7 @@ class PaymentMethods extends AbstractHelper
      * @param Quote $quote
      * @param string|null $shopperLocale
      * @param string|null $country
+     * @param string|null $channel
      * @return array
      * @throws AdyenException
      */
@@ -534,15 +556,18 @@ class PaymentMethods extends AbstractHelper
         Store $store,
         Quote $quote,
         ?string $shopperLocale = null,
-        ?string $country = null
+        ?string $country = null,
+        ?string $channel = null
     ): array {
         $currencyCode = $this->chargedCurrency->getQuoteAmountCurrency($quote)->getCurrencyCode();
 
+        $channel = in_array($channel, self::VALID_CHANNELS, true) ? $channel : "Web";
+
         $paymentMethodRequest = [
-            "channel" => "Web",
+            "channel" => $channel ?? "Web",
             "merchantAccount" => $merchantAccount,
             "countryCode" => $country ?? $this->getCurrentCountryCode($store),
-            "shopperLocale" => $shopperLocale ?: $this->adyenHelper->getCurrentLocaleCode($store->getId()),
+            "shopperLocale" => $shopperLocale ?? $this->adyenHelper->getCurrentLocaleCode($store->getId()),
             "amount" => [
                 "currency" => $currencyCode
             ]
@@ -934,7 +959,7 @@ class PaymentMethods extends AbstractHelper
 
         // Returns if the payment method is wallet like wechatpayWeb, amazonpay, applepay, paywithgoogle
         $isWalletPaymentMethod = $this->isWalletPaymentMethod($paymentMethodInstance);
-        $isCardPaymentMethod = $order->getPayment()->getMethod() === 'adyen_cc' || $order->getPayment()->getMethod() === 'adyen_oneclick';
+        $isCardPaymentMethod = $order->getPayment()->getMethod() === self::ADYEN_CC || $order->getPayment()->getMethod() === self::ADYEN_ONE_CLICK;
 
         // If it is a wallet method OR a card OR the methods match exactly, return true
         if ($isWalletPaymentMethod || $isCardPaymentMethod || strcmp($notificationPaymentMethod, $orderPaymentMethod) === 0) {
